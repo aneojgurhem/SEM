@@ -14,6 +14,11 @@
 #endif
 
 
+#if GLLOPTMIN<=3 && GLLOPTMAX>=3
+#define GENGLL3 1
+#else
+#define GENGLL3 0
+#endif
 #if GLLOPTMIN<=4 && GLLOPTMAX>=4
 #define GENGLL4 1
 #else
@@ -59,6 +64,11 @@
 
 #define CALLDFLT(funcname,sfx,args) case default;call GLUE(GLUE(funcname,_),GLUE(N,sfx)) args
 
+#if GENGLL3
+#define NGLLDISPATCHCALL_3(funcname,sfx,args) CALLOP(3,funcname,sfx,args)
+#else
+#define NGLLDISPATCHCALL_3(funcname,sfx,args)
+#endif
 #if GENGLL4
 #define NGLLDISPATCHCALL_4(funcname,sfx,args) CALLOP(4,funcname,sfx,args)
 #else

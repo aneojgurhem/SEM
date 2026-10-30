@@ -17,6 +17,12 @@ contains
 #define ANISO
 #define PROCNAMEBASE calcul_forces_aniso_
 
+#if GENGLL3
+#undef NGLLVAL
+#define NGLLVAL 3
+#include "calcul_forces_solid_main.inc"
+#endif
+
 #if GENGLL4
 #undef NGLLVAL
 #define NGLLVAL 4

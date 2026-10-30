@@ -35,6 +35,12 @@ contains
 
 #define PROCNAMEBASE calcul_forces_pml_
 
+#if GENGLL3
+#undef NGLLVAL
+#define NGLLVAL 3
+#include "calcul_spml_main.inc"
+#endif
+
 #if GENGLL4
 #undef NGLLVAL
 #define NGLLVAL 4

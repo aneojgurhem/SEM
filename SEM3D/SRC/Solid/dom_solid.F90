@@ -869,6 +869,7 @@ contains
         type(champssolid), intent(inout) :: dvdt
         !
         select case(dom%ngll)
+            NGLLDISPATCHCALL_3(calcul_forces_iso,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_4(calcul_forces_iso,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_5(calcul_forces_iso,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_6(calcul_forces_iso,,(dom,dom%ngll,var,dvdt))
@@ -886,6 +887,7 @@ contains
         type(champssolid), intent(inout) :: dvdt
         !
         select case(dom%ngll)
+            NGLLDISPATCHCALL_3(calcul_forces_iso_atn,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_4(calcul_forces_iso_atn,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_5(calcul_forces_iso_atn,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_6(calcul_forces_iso_atn,,(dom,dom%ngll,var,dvdt))
@@ -903,6 +905,7 @@ contains
         type(champssolid), intent(inout) :: dvdt
         !
         select case(dom%ngll)
+            NGLLDISPATCHCALL_3(calcul_forces_aniso,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_4(calcul_forces_aniso,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_5(calcul_forces_aniso,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_6(calcul_forces_aniso,,(dom,dom%ngll,var,dvdt))
@@ -920,6 +923,7 @@ contains
         type(champssolid), intent(inout) :: dvdt
         !
         select case(dom%ngll)
+            NGLLDISPATCHCALL_3(calcul_forces_aniso_atn,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_4(calcul_forces_aniso_atn,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_5(calcul_forces_aniso_atn,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_6(calcul_forces_aniso_atn,,(dom,dom%ngll,var,dvdt))
@@ -937,6 +941,7 @@ contains
         type(champssolid), intent(inout) :: dvdt
         !
         select case(dom%ngll)
+            NGLLDISPATCHCALL_3(calcul_forces_iso_nl,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_4(calcul_forces_iso_nl,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_5(calcul_forces_iso_nl,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_6(calcul_forces_iso_nl,,(dom,dom%ngll,var,dvdt))
@@ -954,6 +959,7 @@ contains
         type(champssolid), intent(inout) :: dvdt
         !
         select case(dom%ngll)
+            NGLLDISPATCHCALL_3(calcul_forces_aniso_nl,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_4(calcul_forces_aniso_nl,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_5(calcul_forces_aniso_nl,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_6(calcul_forces_aniso_nl,,(dom,dom%ngll,var,dvdt))
@@ -972,6 +978,7 @@ contains
         logical, intent(IN) :: m_dump, m_expl, m_recalc
         !
         select case(dom%ngll)
+            NGLLDISPATCHCALL_3(calcul_forces_iso,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
             NGLLDISPATCHCALL_4(calcul_forces_iso,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
             NGLLDISPATCHCALL_5(calcul_forces_iso,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
             NGLLDISPATCHCALL_6(calcul_forces_iso,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
@@ -990,6 +997,7 @@ contains
         logical, intent(IN) :: m_dump, m_expl, m_recalc
         !
         select case(dom%ngll)
+            NGLLDISPATCHCALL_3(calcul_forces_aniso,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
             NGLLDISPATCHCALL_4(calcul_forces_aniso,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
             NGLLDISPATCHCALL_5(calcul_forces_aniso,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
             NGLLDISPATCHCALL_6(calcul_forces_aniso,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
@@ -1008,6 +1016,7 @@ contains
         logical, intent(IN) :: m_dump, m_expl, m_recalc
         !
         select case(dom%ngll)
+            NGLLDISPATCHCALL_3(calcul_forces_iso_atn,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
             NGLLDISPATCHCALL_4(calcul_forces_iso_atn,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
             NGLLDISPATCHCALL_5(calcul_forces_iso_atn,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
             NGLLDISPATCHCALL_6(calcul_forces_iso_atn,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
@@ -1026,6 +1035,7 @@ contains
         logical, intent(IN) :: m_dump, m_expl, m_recalc
         !
         select case(dom%ngll)
+            NGLLDISPATCHCALL_3(calcul_forces_aniso_atn,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
             NGLLDISPATCHCALL_4(calcul_forces_aniso_atn,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
             NGLLDISPATCHCALL_5(calcul_forces_aniso_atn,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
             NGLLDISPATCHCALL_6(calcul_forces_aniso_atn,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))

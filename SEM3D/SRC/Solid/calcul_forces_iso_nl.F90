@@ -34,6 +34,12 @@ contains
 #undef ATTENUATION
 #define NONLINEAR
 
+#if GENGLL3
+#undef NGLLVAL
+#define NGLLVAL 3
+#include "calcul_forces_solid_nl.inc"
+#endif
+
 #if GENGLL4
 #undef NGLLVAL
 #define NGLLVAL 4

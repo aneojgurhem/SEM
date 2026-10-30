@@ -380,6 +380,7 @@ contains
         type(champsfluid), intent(inout) :: dvdt
         !
         select case(dom%ngll)
+            NGLLDISPATCHCALL_3(calcul_forces_fl,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_4(calcul_forces_fl,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_5(calcul_forces_fl,,(dom,dom%ngll,var,dvdt))
             NGLLDISPATCHCALL_6(calcul_forces_fl,,(dom,dom%ngll,var,dvdt))
@@ -398,6 +399,7 @@ contains
         logical, intent(IN) :: m_dump, m_expl, m_recalc
         !
         select case(dom%ngll)
+            NGLLDISPATCHCALL_3(calcul_forces_fl,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
             NGLLDISPATCHCALL_4(calcul_forces_fl,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
             NGLLDISPATCHCALL_5(calcul_forces_fl,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))
             NGLLDISPATCHCALL_6(calcul_forces_fl,_mirror,(dom,dom%ngll,var,dvdt,m_dump,m_expl,m_recalc))

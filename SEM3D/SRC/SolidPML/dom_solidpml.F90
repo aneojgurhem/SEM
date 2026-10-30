@@ -289,6 +289,7 @@ contains
         integer, intent(in) :: i1
         !
         select case(dom%ngll)
+            NGLLDISPATCHCALL_3(calcul_forces_pml,,(dom,dom%ngll,dom%champs(i1)))
             NGLLDISPATCHCALL_4(calcul_forces_pml,,(dom,dom%ngll,dom%champs(i1)))
             NGLLDISPATCHCALL_5(calcul_forces_pml,,(dom,dom%ngll,dom%champs(i1)))
             NGLLDISPATCHCALL_6(calcul_forces_pml,,(dom,dom%ngll,dom%champs(i1)))

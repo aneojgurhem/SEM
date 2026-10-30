@@ -18,6 +18,12 @@ contains
 #define TEST_FLUID_ACC USE_ACC_FOR_CPU
 #endif
 
+#if GENGLL3
+#undef NGLLVAL
+#define NGLLVAL 3
+#include "calcul_fluid_main.inc"
+#endif
+
 #if GENGLL4
 #undef NGLLVAL
 #define NGLLVAL 4
