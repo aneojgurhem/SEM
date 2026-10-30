@@ -15,6 +15,9 @@ module mlocations3d
     use selement
     use mindex
     implicit none
+    ! Boites englobantes des elements (xmin, xmax, ymin, ymax, zmin, zmax), calculees au premier
+    ! appel de find_location_bbox : chaque point a localiser parcourt tous les elements
+    real(fpp), allocatable, dimension(:,:), save :: elem_bbox
 contains
     subroutine find_location(Tdomain, x0,y0,z0, nmax, elems, localcoord, nsrc)
         type(domain), intent(in) :: Tdomain
@@ -119,19 +122,23 @@ contains
 
         allocate(control_coords(0:2, 0:nnodes-1))
 
+        if (.not. allocated(elem_bbox)) then
+            allocate(elem_bbox(0:5, 0:max(Tdomain%n_elem,1)-1))
+            do n = 0, Tdomain%n_elem-1
+                do j = 0,nnodes-1
+                    control_coords(0:2, j) = Tdomain%Coord_Nodes(0:2, Tdomain%specel(n)%Control_Nodes(j))
+                enddo
+                do j = 0,2
+                    elem_bbox(j*2, n) = minval(control_coords(j, :))
+                    elem_bbox(j*2+1, n) = maxval(control_coords(j, :))
+                enddo
+            enddo
+        end if
+
         !!! loop on all elements
 
         do n = 0, Tdomain%n_elem-1
-
-            !!! compute element bounding box
-            do j = 0,nnodes-1
-                control_coords(0:2, j) = Tdomain%Coord_Nodes(0:2, Tdomain%specel(n)%Control_Nodes(j))
-            enddo
-            bbox = 0.0_fpp
-            do j = 0,2
-                bbox(j*2) = minval(control_coords(j, :))
-                bbox(j*2+1) = maxval(control_coords(j, :))
-            enddo
+            bbox = elem_bbox(:, n)
 
             if (x0 >= bbox(0) .and. x0 <= bbox(1) &
                 .and. y0 >= bbox(2) .and. y0 <= bbox(3) &
