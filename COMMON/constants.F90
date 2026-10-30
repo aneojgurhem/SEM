@@ -73,7 +73,7 @@ MODULE constants
     logical, parameter :: NOT_COMPUTE_VHAT=.false.
 
     ! Les fichiers capteurs sont ecrits toutes les NCAPT_CACHE sorties
-    integer, parameter :: NCAPT_CACHE=100
+    integer, parameter :: NCAPT_CACHE=1024
     integer, parameter :: CAPT_INTERPOLATED=0
     integer, parameter :: CAPT_NEAREST_NODE=1
 
