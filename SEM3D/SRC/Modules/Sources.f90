@@ -197,17 +197,25 @@ contains
         implicit none
         type(source), intent(in)  :: Sour
         real(fpp), intent(in)     :: tt
-        integer :: i
+        integer :: i, lo, hi
 
         if(tt < Sour%time(0)) then
             Source_File = 0.
         else if(tt >= Sour%time(Sour%Nt-1)) then
             Source_File = Sour%ampli(Sour%Nt-1)
         else
-            i = 1
-            do while(tt > Sour%time(i))
-                i = i + 1
+            ! plus petit i >= 1 tel que time(i) >= tt (temps croissants), par dichotomie
+            lo = 1
+            hi = Sour%Nt-1
+            do while (lo < hi)
+                i = (lo + hi)/2
+                if (tt > Sour%time(i)) then
+                    lo = i + 1
+                else
+                    hi = i
+                end if
             end do
+            i = lo
             Source_File = Sour%ampli(i-1) + (tt-Sour%time(i-1))*(Sour%ampli(i)-Sour%ampli(i-1))/(Sour%time(i)-Sour%time(i-1))
         endif
         return
