@@ -232,6 +232,8 @@ typedef struct {
     int save_strain;
     // Periode (en pas de temps) de la sortie des deformations
     int strain_period;
+    // 0 : deformations ; 1 : deplacements (simulation directe) ; 2 : noyaux (simulation adjointe)
+    int strain_mode;
 
 } sem_config_t;
 

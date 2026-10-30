@@ -122,6 +122,8 @@ module sem_c_config
        integer(C_INT) :: save_strain
        !! Periode (en pas de temps) de la sortie des deformations
        integer(C_INT) :: strain_period
+       !! 0 : deformations ; 1 : deplacements (directe) ; 2 : noyaux (adjointe)
+       integer(C_INT) :: strain_mode
     end type sem_config
 
 
