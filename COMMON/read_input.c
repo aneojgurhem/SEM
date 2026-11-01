@@ -856,6 +856,8 @@ int parse_input_spec(yyscan_t scanner, sem_config_t* config)
 	else if (cmp(scanner,"save_strain")) err=expect_eq_bool(scanner, &config->save_strain,1);
 	else if (cmp(scanner,"strain_period")) err=expect_eq_int(scanner, &config->strain_period,1);
 	else if (cmp(scanner,"strain_mode")) err=expect_eq_int(scanner, &config->strain_mode,1);
+	else if (cmp(scanner,"strain_pml")) err=expect_eq_bool(scanner, &config->strain_pml,1);
+	else if (cmp(scanner,"pml_damping_vp")) err=expect_eq_float(scanner, &config->pml_damping_vp,1);
 	else if (cmp(scanner,"sim_time")) err=expect_eq_float(scanner, &config->sim_time,1);
 	else if (cmp(scanner,"source")) err=expect_source(scanner, config);
 	else if (cmp(scanner,"extended_source")) err=expect_extended_source(scanner, config);

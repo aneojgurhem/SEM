@@ -327,6 +327,8 @@ contains
         allocate(Vp(0:ngll-1,0:ngll-1,0:ngll-1))
         Vp = sqrt((Tdomain%spmldom%Lambda_ (:,:,:,bnum,ee) + &
             2. * Tdomain%spmldom%Mu_(:,:,:,bnum,ee))/Tdomain%spmldom%Density_(:,:,:,bnum,ee))
+        ! pml_damping_vp : profil d''amortissement independant des proprietes lues par fichier
+        if (Tdomain%config%pml_damping_vp > 0) Vp = Tdomain%config%pml_damping_vp
 
         !- definition of the attenuation coefficient in PMLs (alpha in the literature)
         allocate(wx(0:ngll-1,0:ngll-1,0:ngll-1))

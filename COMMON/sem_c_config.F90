@@ -124,6 +124,10 @@ module sem_c_config
        integer(C_INT) :: strain_period
        !! 0 : deformations ; 1 : deplacements (directe) ; 2 : noyaux (adjointe)
        integer(C_INT) :: strain_mode
+       !! Sortie aussi dans les PML solides
+       integer(C_INT) :: strain_pml
+       !! Si > 0, Vp de l''amortissement des PML solides au lieu de celle de chaque point
+       real(C_DOUBLE) :: pml_damping_vp
     end type sem_config
 
 

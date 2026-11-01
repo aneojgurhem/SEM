@@ -234,6 +234,11 @@ typedef struct {
     int strain_period;
     // 0 : deformations ; 1 : deplacements (simulation directe) ; 2 : noyaux (simulation adjointe)
     int strain_mode;
+    // Sortie aussi dans les PML solides (deplacement integre de la vitesse, noyaux en strain_mode 2)
+    int strain_pml;
+    // Si > 0, Vp utilisee pour l'amortissement des PML solides au lieu de celle de chaque point :
+    // l'amortissement ne depend alors pas du modele lu par fichier
+    double pml_damping_vp;
 
 } sem_config_t;
 
