@@ -69,6 +69,9 @@ module mstrain_output
     real(kind=4), allocatable, dimension(:,:), save :: epf     ! eps~ aux points PML (float32)
     real(kind=8), allocatable, dimension(:,:), save :: acoef   ! a1, a2, a3 aux points PML
     real(kind=8), allocatable, dimension(:,:,:), save :: iint  ! I1, I2, I3 de eps~ (directe)
+    ! bloc et indice dans le bloc (lnum/VCHUNK, mod(lnum,VCHUNK)) des elements ecrits, solides et PML :
+    ! les boucles de calcul (sur GPU avec OpenACC) n''accedent pas a Tdomain%specel
+    integer, allocatable, dimension(:), save :: elb, ele, pelb, pele
 
 contains
 
@@ -110,6 +113,8 @@ contains
             allocate(pelems(0:-1))
         end if
         nel = size(elems)
+        call block_of(Tdomain, elems, elb, ele)
+        call block_of(Tdomain, pelems, pelb, pele)
 
         ngll = Tdomain%sdom%ngll
         npts_s = nel*ngll*ngll*ngll
@@ -173,6 +178,21 @@ contains
                 end if
             end if
         end if
+        ! Donnees sur le GPU pour toute la simulation ; seuls le deplacement aux noeuds ecrits (dispf),
+        ! eps~ aux points PML (epf) et, a la fin, les noyaux (kl, km) passent par l''hote.
+        !$acc enter data copyin(elb, ele, pelb, pele) create(buffer)
+        if (mode /= 0) then
+            !$acc enter data copyin(nodes) create(dispf)
+            if (npts > npts_s) then
+                !$acc enter data create(epf)
+                if (mode == 1) then
+                    !$acc enter data copyin(acoef, iint)
+                end if
+            end if
+            if (mode == 2) then
+                !$acc enter data copyin(kl, km, ufull) create(bufferf)
+            end if
+        end if
         strain_open = .true.
         if (Tdomain%rank == 0) write(*,*) "--> STRAIN OUTPUT: ", nel, " + ", size(pelems), &
             " PML elements, ", npts, " points on rank 0"
@@ -194,6 +214,21 @@ contains
             end if
         end do
     end subroutine list_elems
+
+    !> Bloc (b) et indice dans le bloc (e) de chaque element de el.
+    subroutine block_of(Tdomain, el, b, e)
+        type(domain), intent(in) :: Tdomain
+        integer, dimension(0:), intent(in) :: el
+        integer, allocatable, dimension(:), intent(out) :: b, e
+        integer :: n
+        allocate(b(0:max(size(el),1)-1), e(0:max(size(el),1)-1))
+        b = 0
+        e = 0
+        do n = 0, size(el)-1
+            b(n) = Tdomain%specel(el(n))%lnum/VCHUNK
+            e(n) = mod(Tdomain%specel(el(n))%lnum, VCHUNK)
+        end do
+    end subroutine block_of
 
     !> Coordonnees, poids et element des points des elements el du domaine dom, a partir de ip.
     subroutine geom_of(Tdomain, dom, el, ip, coords, weight, elem_of_pt)
@@ -281,14 +316,12 @@ contains
     end subroutine init_kernels
 
     !> Deformations aux points du domaine solide (out(:,0:npts_s-1)) du champ de deplacement U
-    !! (indice du domaine solide).
+    !! (indice du domaine solide). U et out sont sur le GPU avec OpenACC.
     subroutine strain_of(Tdomain, U, out)
         type(domain), intent(inout) :: Tdomain
         real(fpp), dimension(0:,0:), intent(in) :: U
         real(kind=8), dimension(0:,0:), intent(inout) :: out
-        integer :: ip
-        ip = 0
-        call strain_dom(Tdomain, Tdomain%sdom, elems, U, ip, out)
+        call strain_sol(Tdomain%sdom, size(elems), U, out)
     end subroutine strain_of
 
     !> Deformation etiree eps~ = C^-1 : sigma aux points PML (out(:,npts_s:npts-1)), sigma etant la
@@ -297,30 +330,46 @@ contains
         type(domain), intent(inout) :: Tdomain
         real(kind=8), dimension(0:,0:), intent(inout) :: out
 #ifndef CPML
-        integer :: n, i, j, k, ngll, bnum, ee, ip
+        call strain_spml(Tdomain%spmldom, size(pelems), npts_s, out)
+#endif
+    end subroutine strain_pml_of
+
+#ifndef CPML
+    subroutine strain_spml(dom, npel, off, out)
+        type(domain_solidpml), intent(in) :: dom
+        integer, intent(in) :: npel, off
+        real(kind=8), dimension(0:,0:), intent(inout) :: out
+        integer :: n, i, j, k, ngll, bnum, ee, ip, c
         real(kind=8) :: sig(0:5), lambda, mu, tr
-        ngll = Tdomain%spmldom%ngll
-        ip = npts_s
-        do n = 0, size(pelems)-1
-            bnum = Tdomain%specel(pelems(n))%lnum/VCHUNK
-            ee = mod(Tdomain%specel(pelems(n))%lnum, VCHUNK)
+        ngll = dom%ngll
+        !$acc parallel loop collapse(4) async(1) firstprivate(ngll, off) private(bnum, ee, ip, c, sig, lambda, mu, tr) &
+        !$acc& present(dom, dom%m_Stress1, dom%m_Stress2, dom%m_Stress3, dom%m_Lambda, dom%m_Mu, pelb, pele, out)
+        do n = 0, npel-1
             do k = 0, ngll-1
                 do j = 0, ngll-1
                     do i = 0, ngll-1
-                        sig = Tdomain%spmldom%m_Stress1(ee,:,i,j,k,bnum) + Tdomain%spmldom%m_Stress2(ee,:,i,j,k,bnum) &
-                            + Tdomain%spmldom%m_Stress3(ee,:,i,j,k,bnum)
-                        lambda = Tdomain%spmldom%Lambda_(i,j,k,bnum,ee)
-                        mu = Tdomain%spmldom%Mu_(i,j,k,bnum,ee)
+                        bnum = pelb(n)
+                        ee = pele(n)
+                        ip = off + ((n*ngll + k)*ngll + j)*ngll + i
+                        do c = 0, 5
+                            sig(c) = dom%m_Stress1(ee,c,i,j,k,bnum) + dom%m_Stress2(ee,c,i,j,k,bnum) &
+                                + dom%m_Stress3(ee,c,i,j,k,bnum)
+                        end do
+                        lambda = dom%Lambda_(i,j,k,bnum,ee)
+                        mu = dom%Mu_(i,j,k,bnum,ee)
                         tr = (sig(0) + sig(1) + sig(2)) / (3d0*lambda + 2d0*mu)
-                        out(0:2,ip) = (sig(0:2) - lambda*tr) / (2d0*mu)
-                        out(3:5,ip) = sig(3:5) / (2d0*mu)
-                        ip = ip + 1
+                        do c = 0, 2
+                            out(c,ip) = (sig(c) - lambda*tr) / (2d0*mu)
+                        end do
+                        do c = 3, 5
+                            out(c,ip) = sig(c) / (2d0*mu)
+                        end do
                     end do
                 end do
             end do
         end do
+    end subroutine strain_spml
 #endif
-    end subroutine strain_pml_of
 
     !> a1, a2, a3 aux points PML, a partir des amortissements dk = 2 (1/DumpSk(1) - 1) / dt.
     subroutine pml_coefs(Tdomain)
@@ -351,107 +400,120 @@ contains
 #endif
     end subroutine pml_coefs
 
-    subroutine strain_dom(Tdomain, dom, el, U, ip, out)
-        use deriv3d
-        type(domain), intent(inout) :: Tdomain
-        class(dombase), intent(in) :: dom
-        integer, dimension(0:), intent(in) :: el
+    !> Deformations aux points des nel elements solides ecrits (elb, ele) du champ U, dans
+    !! out(:,0:nel*ngll**3-1), meme ordre et memes operations que physical_part_deriv_ijk.
+    subroutine strain_sol(dom, nel, U, out)
+        type(domain_solid), intent(in) :: dom
+        integer, intent(in) :: nel
         real(fpp), dimension(0:,0:), intent(in) :: U
-        integer, intent(inout) :: ip
         real(kind=8), dimension(0:,0:), intent(inout) :: out
         !
-        integer :: n, i, j, k, ngll, bnum, ee, ind
-        real(fpp), dimension(0:dom%ngll-1,0:dom%ngll-1,0:dom%ngll-1,0:2) :: fieldU
-        real(fpp), dimension(0:2,0:2) :: invgrad_ijk
-        real(fpp) :: DXX, DXY, DXZ, DYX, DYY, DYZ, DZX, DZY, DZZ
+        integer :: n, i, j, k, l, c, ngll, bnum, ee, ip
+        real(fpp) :: dxi, deta, dzeta, g(0:2,0:2)
 
         ngll = dom%ngll
-        do n = 0, size(el)-1
-            bnum = Tdomain%specel(el(n))%lnum/VCHUNK
-            ee = mod(Tdomain%specel(el(n))%lnum, VCHUNK)
+        !$acc parallel loop collapse(4) async(1) firstprivate(ngll) &
+        !$acc& private(bnum, ee, ip, l, c, dxi, deta, dzeta, g) &
+        !$acc& present(dom, dom%m_Idom, dom%m_InvGrad, dom%hprime, elb, ele, U, out)
+        do n = 0, nel-1
             do k = 0, ngll-1
                 do j = 0, ngll-1
                     do i = 0, ngll-1
-                        ind = dom%Idom_(i,j,k,bnum,ee)
-                        fieldU(i,j,k,:) = U(ind,:)
-                    end do
-                end do
-            end do
-            do k = 0, ngll-1
-                do j = 0, ngll-1
-                    do i = 0, ngll-1
-                        ! DAB = dU_B/dA
-                        invgrad_ijk = dom%InvGrad_(:,:,i,j,k,bnum,ee)
-                        call physical_part_deriv_ijk(i,j,k,ngll,dom%hprime,&
-                            invgrad_ijk,fieldU(:,:,:,0),DXX,DYX,DZX)
-                        call physical_part_deriv_ijk(i,j,k,ngll,dom%hprime,&
-                            invgrad_ijk,fieldU(:,:,:,1),DXY,DYY,DZY)
-                        call physical_part_deriv_ijk(i,j,k,ngll,dom%hprime,&
-                            invgrad_ijk,fieldU(:,:,:,2),DXZ,DYZ,DZZ)
-                        out(0,ip) = DXX
-                        out(1,ip) = DYY
-                        out(2,ip) = DZZ
-                        out(3,ip) = 0.5d0*(DYX+DXY)
-                        out(4,ip) = 0.5d0*(DZX+DXZ)
-                        out(5,ip) = 0.5d0*(DZY+DYZ)
-                        ip = ip + 1
+                        bnum = elb(n)
+                        ee = ele(n)
+                        ip = ((n*ngll + k)*ngll + j)*ngll + i
+                        ! g(a,c) = dU_c/dA
+                        do c = 0, 2
+                            dxi = 0d0
+                            deta = 0d0
+                            dzeta = 0d0
+                            do l = 0, ngll-1
+                                dxi = dxi + U(dom%Idom_(l,j,k,bnum,ee),c)*dom%hprime(l,i)
+                                deta = deta + U(dom%Idom_(i,l,k,bnum,ee),c)*dom%hprime(l,j)
+                                dzeta = dzeta + U(dom%Idom_(i,j,l,bnum,ee),c)*dom%hprime(l,k)
+                            end do
+                            g(0,c) = dxi*dom%InvGrad_(0,0,i,j,k,bnum,ee) + deta*dom%InvGrad_(0,1,i,j,k,bnum,ee) &
+                                + dzeta*dom%InvGrad_(0,2,i,j,k,bnum,ee)
+                            g(1,c) = dxi*dom%InvGrad_(1,0,i,j,k,bnum,ee) + deta*dom%InvGrad_(1,1,i,j,k,bnum,ee) &
+                                + dzeta*dom%InvGrad_(1,2,i,j,k,bnum,ee)
+                            g(2,c) = dxi*dom%InvGrad_(2,0,i,j,k,bnum,ee) + deta*dom%InvGrad_(2,1,i,j,k,bnum,ee) &
+                                + dzeta*dom%InvGrad_(2,2,i,j,k,bnum,ee)
+                        end do
+                        out(0,ip) = g(0,0)
+                        out(1,ip) = g(1,1)
+                        out(2,ip) = g(2,2)
+                        out(3,ip) = 0.5d0*(g(1,0)+g(0,1))
+                        out(4,ip) = 0.5d0*(g(2,0)+g(0,2))
+                        out(5,ip) = 0.5d0*(g(2,1)+g(1,2))
                     end do
                 end do
             end do
         end do
-    end subroutine strain_dom
+    end subroutine strain_sol
 
+    !> Appele a chaque pas de temps, apres le calcul des champs (file OpenACC 1).
     subroutine save_strain_output(Tdomain)
         type(domain), intent(inout) :: Tdomain
         !
-        integer :: m, ip, r, kf
+        integer :: ip, r, kf, c, npp, nb
         integer(kind=8) :: pos
         real(kind=8) :: dtp, tu, tw
 
         if (.not. strain_open) return
         nstep = nstep + 1
         if (mod(nstep, period) /= 0) return
-        !$acc update host(Tdomain%sdom%champs(0)%Depla) async(2) wait(1)
-        !$acc wait(2)
+        npp = npts - npts_s
+        dtp = Tdomain%TimeD%dtmin * period
         select case (mode)
         case (0)
             call strain_of(Tdomain, Tdomain%sdom%champs(0)%Depla, buffer)
+            nb = npts
+            !$acc update host(buffer(:,0:nb-1)) async(1) if(nb > 0)
+            !$acc wait(1)
             if (npts > 0) write(strain_unit) buffer(:,0:npts-1)
         case (1)
-            do m = 0, nnod-1
-                dispf(:,m) = Tdomain%sdom%champs(0)%Depla(nodes(m),:)
-            end do
-            if (nnod > 0) write(disp_unit) dispf(:,0:nnod-1)
-            if (npts > npts_s) then
+            call gather_nodes(Tdomain%sdom%champs(0)%Depla)
+            if (npp > 0) then
                 call strain_pml_of(Tdomain, buffer)
-                dtp = Tdomain%TimeD%dtmin * period
-                do ip = 0, npts-npts_s-1
-                    iint(:,ip,1) = iint(:,ip,1) + dtp * buffer(:,npts_s+ip)
-                    iint(:,ip,2) = iint(:,ip,2) + dtp * iint(:,ip,1)
-                    iint(:,ip,3) = iint(:,ip,3) + dtp * iint(:,ip,2)
-                    epf(:,ip) = real(buffer(:,npts_s+ip) + acoef(0,ip)*iint(:,ip,1) &
-                        + acoef(1,ip)*iint(:,ip,2) + acoef(2,ip)*iint(:,ip,3), 4)
+                !$acc parallel loop async(1) firstprivate(dtp) private(c) present(buffer, iint, acoef, epf)
+                do ip = 0, npp-1
+                    do c = 0, 5
+                        iint(c,ip,1) = iint(c,ip,1) + dtp * buffer(c,npts_s+ip)
+                        iint(c,ip,2) = iint(c,ip,2) + dtp * iint(c,ip,1)
+                        iint(c,ip,3) = iint(c,ip,3) + dtp * iint(c,ip,2)
+                        epf(c,ip) = real(buffer(c,npts_s+ip) + acoef(0,ip)*iint(c,ip,1) &
+                            + acoef(1,ip)*iint(c,ip,2) + acoef(2,ip)*iint(c,ip,3), 4)
+                    end do
                 end do
-                write(epml_unit) epf
+                !$acc update host(epf) async(1)
             end if
+            !$acc wait(1)
+            if (nnod > 0) write(disp_unit) dispf(:,0:nnod-1)
+            if (npp > 0) write(epml_unit) epf
         case (2)
             r = nstep/period - 1
             kf = nrecf - 2 - r
             if (kf < 0 .or. npts == 0) return
             call strain_of(Tdomain, Tdomain%sdom%champs(0)%Depla, buffer)
-            pos = int(kf, 8) * int(nnod, 8) * 24_8 + 1_8
-            read(disp_unit, pos=pos) dispf(:,0:nnod-1)
-            do m = 0, nnod-1
-                ufull(nodes(m),:) = dispf(:,m)
-            end do
-            call strain_of(Tdomain, ufull, bufferf)
-            if (npts > npts_s) then
-                call strain_pml_of(Tdomain, buffer)
-                pos = int(kf, 8) * int(npts-npts_s, 8) * 24_8 + 1_8
-                read(epml_unit, pos=pos) epf
-                bufferf(:,npts_s:npts-1) = real(epf, 8)
+            if (nnod > 0) then
+                pos = int(kf, 8) * int(nnod, 8) * 24_8 + 1_8
+                read(disp_unit, pos=pos) dispf(:,0:nnod-1)
+                call scatter_nodes()
             end if
-            dtp = Tdomain%TimeD%dtmin * period
+            call strain_of(Tdomain, ufull, bufferf)
+            if (npp > 0) then
+                call strain_pml_of(Tdomain, buffer)
+                pos = int(kf, 8) * int(npp, 8) * 24_8 + 1_8
+                read(epml_unit, pos=pos) epf
+                !$acc update device(epf) async(1)
+                !$acc parallel loop async(1) private(c) present(bufferf, epf)
+                do ip = 0, npp-1
+                    do c = 0, 5
+                        bufferf(c,npts_s+ip) = real(epf(c,ip), 8)
+                    end do
+                end do
+            end if
+            !$acc parallel loop async(1) firstprivate(dtp) private(tu, tw) present(buffer, bufferf, kl, km)
             do ip = 0, npts-1
                 tu = bufferf(0,ip) + bufferf(1,ip) + bufferf(2,ip)
                 tw = buffer(0,ip) + buffer(1,ip) + buffer(2,ip)
@@ -460,8 +522,38 @@ contains
                     + bufferf(2,ip)*buffer(2,ip) + 2d0*(bufferf(3,ip)*buffer(3,ip) &
                     + bufferf(4,ip)*buffer(4,ip) + bufferf(5,ip)*buffer(5,ip)))
             end do
+            ! dispf et epf sont relus sur l''hote au prochain enregistrement
+            !$acc wait(1)
         end select
     end subroutine save_strain_output
+
+    !> dispf = U aux noeuds ecrits, rapatrie sur l''hote (file 1, a attendre).
+    subroutine gather_nodes(U)
+        real(fpp), dimension(0:,0:), intent(in) :: U
+        integer :: m, n
+        n = nnod
+        if (n == 0) return
+        !$acc parallel loop async(1) present(nodes, U, dispf)
+        do m = 0, n-1
+            dispf(0,m) = U(nodes(m),0)
+            dispf(1,m) = U(nodes(m),1)
+            dispf(2,m) = U(nodes(m),2)
+        end do
+        !$acc update host(dispf(:,0:n-1)) async(1)
+    end subroutine gather_nodes
+
+    !> ufull = dispf aux noeuds ecrits (dispf lu sur l''hote).
+    subroutine scatter_nodes()
+        integer :: m, n
+        n = nnod
+        !$acc update device(dispf(:,0:n-1)) async(1)
+        !$acc parallel loop async(1) present(nodes, ufull, dispf)
+        do m = 0, n-1
+            ufull(nodes(m),0) = dispf(0,m)
+            ufull(nodes(m),1) = dispf(1,m)
+            ufull(nodes(m),2) = dispf(2,m)
+        end do
+    end subroutine scatter_nodes
 
     subroutine close_strain_output()
         integer :: ku
@@ -473,13 +565,28 @@ contains
                 if (npts > npts_s) close(epml_unit)
             end if
             if (mode == 2 .and. npts > 0) then
+                !$acc update host(kl, km)
                 open(newunit=ku, file="strain/kernel."//trim(adjustl(strrank(rank_of_kernels)))//".bin", &
                     access="stream", form="unformatted", status="replace", action="write")
                 write(ku) kl(0:npts-1), km(0:npts-1)
                 close(ku)
             end if
+            if (mode /= 0) then
+                if (mode == 2) then
+                    !$acc exit data delete(kl, km, ufull, bufferf)
+                end if
+                if (npts > npts_s) then
+                    if (mode == 1) then
+                        !$acc exit data delete(acoef, iint)
+                    end if
+                    !$acc exit data delete(epf)
+                end if
+                !$acc exit data delete(nodes, dispf)
+            end if
+            !$acc exit data delete(elb, ele, pelb, pele, buffer)
             strain_open = .false.
         end if
+        if (allocated(elb)) deallocate(elb, ele, pelb, pele)
         if (allocated(nodes)) deallocate(nodes)
         if (allocated(nodemap)) deallocate(nodemap)
         if (allocated(dispf)) deallocate(dispf)
