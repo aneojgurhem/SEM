@@ -471,15 +471,13 @@ contains
         !
         integer  :: n, id, indpml, jp
 
-        !$acc parallel async(1) &
+        ! Deux regions : les gangs d''une meme region parallel ne se synchronisent pas entre deux
+        ! boucles, la mise a zero de Dirichlet pouvait preceder la mise a jour du meme noeud.
+        !$acc parallel loop collapse(3) async(1) &
         !$acc&   present(dom, dom%DumpV, dom%champs) &
         !$acc&   present(dom%champs(f0), dom%champs(f1)) &
         !$acc&   present(dom%champs(f0)%VelocPML, dom%champs(f1)%ForcesPML) &
-        !$acc&   present(dom%dirich) &
-        !$acc&   firstprivate(f0,f1,dt) &
-        !$acc&   private(indpml)
-
-        !$acc loop collapse(3)
+        !$acc&   firstprivate(f0,f1,dt)
         do jp = 0,2
             do id = 0,2
                 !$omp simd linear(n)
@@ -490,7 +488,9 @@ contains
             end do
         end do
         !TODO Eventuellement : DeplaPML(:,:) = DeplaPML(:,:) + dt * VelocPML(:,:)
-        !$acc loop
+        !$acc parallel loop async(1) &
+        !$acc&   present(dom, dom%champs, dom%champs(f0), dom%champs(f0)%VelocPML, dom%dirich) &
+        !$acc&   firstprivate(f0) private(indpml)
         do n = 0, dom%n_dirich-1
             indpml = dom%dirich(n)
             do jp = 0,2
@@ -499,7 +499,6 @@ contains
                 end do
             end do
         enddo
-        !$acc end parallel
     end subroutine newmark_corrector_solidpml
 
     function solidpml_Pspeed(dom, lnum, i, j, k) result(Pspeed)
