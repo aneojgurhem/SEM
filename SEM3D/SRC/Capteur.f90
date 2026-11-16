@@ -358,10 +358,9 @@ contains
         real(fpp) :: rtime
         rtime = TDomain%timeD%rtime
         do_flush = .false.
-        ! Here, icache is the next position to write, starts at 1
-        do c = 0,nCapteursOnRank-1
-            !$acc update device(localCapteurs(c)%icache) async(2)
-        enddo
+        ! Here, icache is the next position to write, starts at 1. Avec OpenACC, la copie de icache
+        ! sur le GPU avance dans le kernel, au meme rythme que celle de l''hote (boucle ci-dessous),
+        ! et flushAllCapteurs la remet a 1 : pas de transfert par capteur et par pas de temps.
         ! boucle sur les capteurs kernel si openacc
         !$acc parallel loop gang async(2) wait(1) present(Tdomain,localCapteurs) copyin(Tdomain%out_var_capt, Tdomain%out_var_offset)
         do c = 0,nCapteursOnRank-1
@@ -371,6 +370,9 @@ contains
                 else if (localCapteurs(c)%type == CPT_ENERGY) then
 !                    call sortieGrandeurCapteur_energy(Tdomain, localCapteurs(c)%ngll, localCapteurs(c))
                 end if
+#ifdef OPENACC
+                localCapteurs(c)%icache = localCapteurs(c)%icache + 1
+#endif
             endif
         enddo
         ! check counters (always on cpu)
@@ -554,6 +556,13 @@ contains
                 call append_traces_h5(Tdomain)
             end if
         end if
+#ifdef OPENACC
+        ! icache remis a 1 sur l''hote par flushCapteur / append_traces_h5 : idem sur le GPU
+        !$acc parallel loop async(2) present(localCapteurs)
+        do c = 0,nCapteursOnRank-1
+            localCapteurs(c)%icache = 1
+        enddo
+#endif
     end subroutine flushAllCapteurs
 
     subroutine flushCapteur(capteur)
