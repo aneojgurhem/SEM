@@ -41,7 +41,119 @@ module mtimestep
         0.582030414044_fpp, &
         0.847252983783_fpp /)
 
+#ifdef OPENACC
+    ! Forces ponctuelles solides definies par fichier (i_time_function 5 ou 15 : sources de type
+    ! "file" et sources etendues), regroupees sur le GPU et appliquees par un seul kernel par pas
+    ! au lieu d''un kernel par source : pk_ext = ExtForce, pk_amp = amplitude_factor, et la serie
+    ! temporelle de la source p dans pk_time/pk_ampli(pk_off(p):pk_off(p)+pk_nt(p)-1).
+    logical, save :: pk_init = .false.
+    integer, save :: npk = 0
+    logical, allocatable, dimension(:), save :: pk_done              ! par source : regroupee
+    integer, allocatable, dimension(:), save :: pk_bnum, pk_ee, pk_off, pk_nt
+    real(fpp), allocatable, dimension(:), save :: pk_amp, pk_time, pk_ampli
+    real(fpp), allocatable, dimension(:,:,:,:,:), save :: pk_ext
+#endif
+
 contains
+
+#ifdef OPENACC
+    subroutine pack_sources(Tdomain)
+        type(domain), intent(inout) :: Tdomain
+        integer :: ns, p, lnum, ngll, ntot, lb
+        logical :: ok
+
+        pk_init = .true.
+        allocate(pk_done(0:max(Tdomain%n_source,1)-1))
+        pk_done = .false.
+        ngll = Tdomain%sdom%ngll
+        ntot = 0
+        do ns = 0, Tdomain%n_source-1
+            ok = Tdomain%rank == Tdomain%sSource(ns)%proc
+            if (ok) ok = Tdomain%sSource(ns)%i_type_source == 1 .or. Tdomain%sSource(ns)%i_type_source == 2
+            if (ok) ok = Tdomain%sSource(ns)%i_time_function == 5 .or. Tdomain%sSource(ns)%i_time_function == 15
+            if (ok) ok = Tdomain%specel(Tdomain%sSource(ns)%elem)%domain == DM_SOLID_CG
+            if (ok) then
+                pk_done(ns) = .true.
+                npk = npk + 1
+                ntot = ntot + Tdomain%sSource(ns)%Nt
+            end if
+        end do
+        if (npk == 0) return
+        allocate(pk_bnum(0:npk-1), pk_ee(0:npk-1), pk_off(0:npk-1), pk_nt(0:npk-1), pk_amp(0:npk-1))
+        allocate(pk_time(0:ntot-1), pk_ampli(0:ntot-1), pk_ext(0:ngll-1,0:ngll-1,0:ngll-1,0:2,0:npk-1))
+        p = 0
+        ntot = 0
+        do ns = 0, Tdomain%n_source-1
+            if (.not. pk_done(ns)) cycle
+            lnum = Tdomain%specel(Tdomain%sSource(ns)%elem)%lnum
+            pk_bnum(p) = lnum/VCHUNK
+            pk_ee(p) = mod(lnum, VCHUNK)
+            pk_amp(p) = Tdomain%sSource(ns)%amplitude_factor
+            pk_ext(:,:,:,:,p) = Tdomain%sSource(ns)%ExtForce
+            pk_off(p) = ntot
+            pk_nt(p) = Tdomain%sSource(ns)%Nt
+            lb = lbound(Tdomain%sSource(ns)%time, 1)
+            pk_time(ntot:ntot+pk_nt(p)-1) = Tdomain%sSource(ns)%time(lb:lb+pk_nt(p)-1)
+            lb = lbound(Tdomain%sSource(ns)%ampli, 1)
+            pk_ampli(ntot:ntot+pk_nt(p)-1) = Tdomain%sSource(ns)%ampli(lb:lb+pk_nt(p)-1)
+            ntot = ntot + pk_nt(p)
+            p = p + 1
+        end do
+        !$acc enter data copyin(pk_bnum, pk_ee, pk_off, pk_nt, pk_amp, pk_time, pk_ampli, pk_ext)
+        write(*,*) "--> SOURCES ON GPU (rank", Tdomain%rank, "):", npk, " of", Tdomain%n_source, " grouped"
+    end subroutine pack_sources
+
+    !> Veloc(:, :) += ft_p(t) * ExtForce_p pour toutes les sources regroupees, ft_p calculee comme
+    !! CompSource / Source_File (meme interpolation lineaire, meme recherche par dichotomie).
+    subroutine apply_packed_sources(ngll, t, Idom, Veloc)
+        integer, intent(in) :: ngll
+        real(fpp), intent(in) :: t
+        integer, dimension(0:,0:,0:,0:,0:), intent(in) :: Idom
+        real(fpp), dimension(0:,0:), intent(inout) :: Veloc
+        integer :: p, o, n, i, j, k, d, lo, hi, m, bnum, ee, idx
+        real(fpp) :: ft
+
+        !$acc parallel loop gang async(1) firstprivate(t, ngll) private(o, n, lo, hi, m, ft, bnum, ee) &
+        !$acc& present(pk_bnum, pk_ee, pk_off, pk_nt, pk_amp, pk_time, pk_ampli, pk_ext, Idom, Veloc)
+        do p = 0, npk-1
+            o = pk_off(p)
+            n = pk_nt(p)
+            if (t < pk_time(o)) then
+                ft = 0.
+            else if (t >= pk_time(o+n-1)) then
+                ft = pk_ampli(o+n-1)
+            else
+                lo = 1
+                hi = n-1
+                do while (lo < hi)
+                    m = (lo + hi)/2
+                    if (t > pk_time(o+m)) then
+                        lo = m + 1
+                    else
+                        hi = m
+                    end if
+                end do
+                ft = pk_ampli(o+lo-1) + (t-pk_time(o+lo-1))*(pk_ampli(o+lo)-pk_ampli(o+lo-1)) &
+                    /(pk_time(o+lo)-pk_time(o+lo-1))
+            end if
+            ft = ft*pk_amp(p)
+            bnum = pk_bnum(p)
+            ee = pk_ee(p)
+            !$acc loop vector collapse(4) private(idx)
+            do d = 0,2
+                do k = 0,ngll-1
+                    do j = 0,ngll-1
+                        do i = 0,ngll-1
+                            idx = Idom(ee,i,j,k,bnum)
+                            !$acc atomic update
+                            Veloc(idx,d) = Veloc(idx,d) + ft*pk_ext(i,j,k,d,p)
+                        end do
+                    end do
+                end do
+            end do
+        end do
+    end subroutine apply_packed_sources
+#endif
 
     subroutine Timestep_LDDRK(Tdomain,ntime)
 
@@ -618,6 +730,7 @@ contains
         integer, intent(in) :: i1
         integer :: ns,nel, lnum,ngll, bnum, ee, ntimecur, dom
         real(kind=fpp) :: t, ft, timercur
+        logical :: packed
 
         if (Tdomain%mirror_type==1) return
         !!!if (Tdomain%mirror_type>=1) return
@@ -629,7 +742,21 @@ contains
             ntimecur = Tdomain%TimeD%ntimeMax-1-ntime
         endif
 
+        packed = .false.
+#ifdef OPENACC
+        ! Newmark (champs 1) : sources regroupees, un seul kernel (voir pack_sources)
+        if (.not. pk_init) call pack_sources(Tdomain)
+        packed = npk > 0 .and. i1 == 1
+        if (packed) call apply_packed_sources(Tdomain%sdom%ngll, timercur+Tdomain%TimeD%dtmin/2_fpp, &
+            Tdomain%sdom%m_Idom, Tdomain%sdom%champs(i1)%Veloc)
+#endif
+
         do ns = 0, Tdomain%n_source-1
+#ifdef OPENACC
+            if (packed) then
+                if (pk_done(ns)) cycle
+            end if
+#endif
             if(Tdomain%rank == Tdomain%sSource(ns)%proc)then
                 nel = Tdomain%Ssource(ns)%elem
                 lnum = Tdomain%specel(nel)%lnum
