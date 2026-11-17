@@ -32,7 +32,9 @@ subroutine SourcePosition (Tdomain)
     integer :: src_proc, nmax, n_el, nb_src_inproc
     integer, parameter :: NMAXEL=20
     integer, dimension(NMAXEL) :: elems, doms
-    real(fpp), dimension(0:2,NMAXEL) :: coordloc
+    real(fpp), dimension(0:2,NMAXEL) :: coordloc, centre
+    real(8), dimension(0:3) :: key
+    real(8), dimension(:,:), allocatable :: keys
     real(fpp), parameter :: EPSD = 1D-10
     real(fpp) :: EPS
     type(source), dimension(:), allocatable :: ssource_temp
@@ -55,30 +57,48 @@ subroutine SourcePosition (Tdomain)
         call find_location(Tdomain, xs, ys, zs, nmax, elems, coordloc, n_src)
         n_el = -1
 
-        ! Premier element qui contient la source et dont le domaine convient
-        ! (source fluide dans un element fluide, sinon solide). Un point sur une
-        ! frontiere a plusieurs candidats : on ne s''arrete pas au premier.
+        ! Element qui contient la source, dont le domaine convient (source fluide dans un
+        ! element fluide, sinon solide) et de plus petite cle (source_candidate_key). Un point
+        ! sur une frontiere a plusieurs candidats : on ne s''arrete pas au premier.
         do i=1,nmax
             doms(i) = Tdomain%specel(elems(i))%domain
+            do j = 0, nnodes-1
+                coord(0:2, j) = Tdomain%Coord_Nodes(0:2, Tdomain%specel(elems(i))%Control_Nodes(j))
+            enddo
+            centre(:,i) = sum(coord, dim=2) / nnodes
         end do
-        k = select_source_candidate(nmax, coordloc(:,1:nmax), doms(1:nmax), &
+        k = select_source_candidate(nmax, coordloc(:,1:nmax), centre(:,1:nmax), doms(1:nmax), &
             Tdomain%sSource(n_src)%i_type_source == 3, EPS)
+        key = huge(1d0)
         if (k > 0) then
             n_el = elems(k)
             xi   = coordloc(0,k)
             eta  = coordloc(1,k)
             zeta = coordloc(2,k)
+            key = source_candidate_key(coordloc(:,k), centre(:,k))
         end if
 
         Tdomain%Ssource(n_src)%elem = n_el
-        if (n_el/=-1) then
+        ! On trouve le processeur qui contient la src : celui de plus petite cle, la meme
+        ! sur tous les processeurs, donc le meme element quel que soit le decoupage
+        allocate(keys(0:3, 0:Tdomain%nb_procs-1))
+        call MPI_Allgather(key, 4, MPI_DOUBLE_PRECISION, keys, 4, MPI_DOUBLE_PRECISION, &
+                           Tdomain%communicateur, ierr)
+        src_proc = -1
+        do j = 0, Tdomain%nb_procs-1
+            if (keys(0,j) == huge(1d0)) cycle
+            if (src_proc == -1) then
+                src_proc = j
+            else if (source_key_less(keys(:,j), keys(:,src_proc), EPS)) then
+                src_proc = j
+            end if
+        end do
+        deallocate(keys)
+        if (rg==src_proc) then
             Tdomain%sSource(n_src)%proc = rg
         else
             Tdomain%sSource(n_src)%proc = -1
         end if
-        ! On trouve le processeur qui contient la src
-        call MPI_AllReduce(Tdomain%sSource(n_src)%proc, src_proc, 1, MPI_INTEGER, &
-                           MPI_MAX, Tdomain%communicateur, ierr)
 
         if (src_proc==-1) then
             if (rg==0) then
