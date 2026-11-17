@@ -462,6 +462,21 @@ contains
             end do
         end do
         !$acc end parallel
+
+        ! Reset forces on every node, as the other domains do: calcul_forces_pml only runs on a processor
+        ! with PML elements, and one that holds PML nodes only through a vertex or an edge shared with
+        ! another processor would accumulate the forces received at each step (couplage_pml_solid
+        ! passes them on to the solid)
+        !$acc parallel loop collapse(3) async(1) &
+        !$acc&  present(dom, dom%champs, dom%champs(f1), dom%champs(f1)%ForcesPML) &
+        !$acc&  firstprivate(f1)
+        do j=0,2
+            do i=0,2
+                do n = 0,dom%nglltot
+                    dom%champs(f1)%ForcesPML(n,i,j) = 0.
+                end do
+            end do
+        end do
     end subroutine newmark_predictor_solidpml_sub
 
     subroutine newmark_corrector_solidpml(dom, dt, t, f0, f1)
