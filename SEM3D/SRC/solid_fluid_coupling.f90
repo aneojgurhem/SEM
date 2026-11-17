@@ -518,7 +518,7 @@ subroutine FtoS_coupling_cpml(Tdomain, f0, f1)
         Tdomain%spmldom%champs(f1)%Forces(idxS,1) = Tdomain%spmldom%champs(f1)%Forces(idxS,1) - (BtN(1)*nphi(1))
         Tdomain%spmldom%champs(f1)%Forces(idxS,2) = Tdomain%spmldom%champs(f1)%Forces(idxS,2) - (BtN(2)*nphi(2))
     enddo
-end subroutine FtoS_coupling
+end subroutine FtoS_coupling_cpml
 #endif
 
 !-----------------------------------------------------------------------------

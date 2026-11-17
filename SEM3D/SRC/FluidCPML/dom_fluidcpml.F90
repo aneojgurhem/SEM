@@ -847,6 +847,15 @@ contains
         enddo
     end subroutine couplage_pml_fluid
 
+    !> Called by Newmark (internal_forces) like the FluidPML version. The fluid CPML forces need
+    !! Tdomain (forces_int_flu_pml), which this interface does not pass: only an empty fluid CPML
+    !! domain is supported here.
+    subroutine forces_int_fluid_pml_mainloop(dom, i0, i1)
+        type (domain_fluidpml), intent (INOUT) :: dom
+        integer, intent(in) :: i0, i1
+        if (dom%nbelem > 0) stop "CPML : forces_int_fluid_pml_mainloop not implemented for a fluid CPML domain"
+    end subroutine forces_int_fluid_pml_mainloop
+
 end module dom_fluidpml
 
 !! Local Variables:
