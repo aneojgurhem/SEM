@@ -29,7 +29,7 @@ subroutine SourcePosition (Tdomain)
     real(fpp), dimension(0:2,0:2) :: LocInvGrad
     real(fpp), dimension(:,:), allocatable :: coord
     real(fpp) :: R
-    integer :: src_proc, nmax, n_el, nb_src_inproc
+    integer :: src_proc, nmax, n_el, nb_src_inproc, attempt
     integer, parameter :: NMAXEL=20
     integer, dimension(NMAXEL) :: elems, doms
     real(fpp), dimension(0:2,NMAXEL) :: coordloc, centre
@@ -52,9 +52,16 @@ subroutine SourcePosition (Tdomain)
         ys = Tdomain%Ssource(n_src)%Ysource
         zs = Tdomain%Ssource(n_src)%Zsource
 
-        ! On trouve les elements autour de la source
+        ! On trouve les elements autour de la source. Si aucun processeur ne la trouve (source sur
+        ! un noeud de la surface, au-dessus des boites englobantes d'une erreur d'arrondi), on
+        ! cherche parmi les elements autour du noeud le plus proche.
+        do attempt = 1, 2
         nmax = NMAXEL
-        call find_location(Tdomain, xs, ys, zs, nmax, elems, coordloc, n_src)
+        if (attempt == 1) then
+            call find_location(Tdomain, xs, ys, zs, nmax, elems, coordloc, n_src)
+        else
+            call find_location_closest(Tdomain, xs, ys, zs, nmax, elems, coordloc, n_src)
+        end if
         n_el = -1
 
         ! Element qui contient la source, dont le domaine convient (source fluide dans un
@@ -94,6 +101,8 @@ subroutine SourcePosition (Tdomain)
             end if
         end do
         deallocate(keys)
+        if (src_proc /= -1) exit
+        end do
         if (rg==src_proc) then
             Tdomain%sSource(n_src)%proc = rg
         else
