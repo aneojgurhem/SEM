@@ -129,6 +129,13 @@ contains
             ! Cas ou le capteur est dans le maillage
             call MPI_AllReduce(dmin, glob_dmin, 1, MPI_REAL_FPP, &
                 MPI_MIN, Tdomain%communicateur, ierr)
+            ! No bounding box holds the station on any processor: a station on a node of the surface can be
+            ! above it by a rounding error (node coordinates k*dx). Search the elements around the closest node.
+            if (glob_dmin >= 1e19) then
+                call trouve_capteur(Tdomain, xc, yc, zc, n_el, dmin, xi, eta, zeta, flag, closest=.true.)
+                call MPI_AllReduce(dmin, glob_dmin, 1, MPI_REAL_FPP, &
+                    MPI_MIN, Tdomain%communicateur, ierr)
+            end if
             if (dmin==glob_dmin) then
                 numproc = Tdomain%rank
             end if
@@ -911,7 +918,7 @@ contains
     !!on identifie la maille dans laquelle se trouve le capteur. Il peut y en avoir plusieurs,
     !! alors le capteur est sur une face, arete ou sur un sommet
     !!
-    subroutine trouve_capteur(Tdomain, xc, yc, zc, n_el, dmin, xi, eta, zeta, flag)
+    subroutine trouve_capteur(Tdomain, xc, yc, zc, n_el, dmin, xi, eta, zeta, flag, closest)
         use mshape8
         use mshape27
         use mlocations3d
@@ -921,6 +928,7 @@ contains
         integer, intent(out) :: n_el
         real(fpp), intent(out) :: xi, eta, zeta, dmin
         logical, intent(in) :: flag
+        logical, intent(in), optional :: closest
         !
         integer :: i, iel, emin, j
         logical :: inside
@@ -937,7 +945,11 @@ contains
         EPS=EPSD*Tdomain%dxmax
         ximin = 0d0; etamin = 0d0; zetamin = 0d0
         nmax = NMAXEL
-        call find_location(Tdomain, xc, yc, zc, nmax, elems, coordloc)
+        if (present(closest)) then
+            call find_location_closest(Tdomain, xc, yc, zc, nmax, elems, coordloc)
+        else
+            call find_location(Tdomain, xc, yc, zc, nmax, elems, coordloc)
+        end if
         n_el = -1
         ! On calcule la distance entre la station et la maille (0 si interieur)
         dmin = 1e20
